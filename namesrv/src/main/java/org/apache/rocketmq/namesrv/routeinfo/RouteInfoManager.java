@@ -49,10 +49,27 @@ public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+     * topic与队列数据数组Map
+     * 一个topic可以对应多个Broker
+     */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    /**
+     * broker名 与 broker数据 Map
+     * 一个broker名下可以有多个broker，即broker可以同名
+     */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    /**
+     * 集群与broker集合Map
+     */
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    /**
+     * broker地址与broker连接信息Map
+     */
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    /**
+     * broker地址与filtersrv数组Map
+     */
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -99,6 +116,21 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    /**
+     * broker注册
+     *
+     * @param clusterName 集群名
+     * @param brokerAddr broker地址
+     * @param brokerName broker名
+     * @param brokerId broker角色编号
+     * @param haServerAddr TODO
+     * @param topicConfigWrapper topic配置数组
+     * @param filterServerList filtersrv数组
+     * @param channel 连接channel
+     * @return broker注册结果
+     *    当broker为主节点时：不返回 haServerAddr、masterAddr
+     *    当broker为从节点时：返回 haServerAddr、masterAddr
+     */
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -112,7 +144,7 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
-
+                // 更新集群信息
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -120,6 +152,7 @@ public class RouteInfoManager {
                 }
                 brokerNames.add(brokerName);
 
+                // 更新broker信息
                 boolean registerFirst = false;
 
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
@@ -131,6 +164,7 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
+                // 更新topic信息
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) {
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -145,6 +179,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 更新Broker连接信息
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -155,6 +190,7 @@ public class RouteInfoManager {
                     log.info("new broker registered, {} HAServer: {}", brokerAddr, haServerAddr);
                 }
 
+                // 更新filtersrv信息
                 if (filterServerList != null) {
                     if (filterServerList.isEmpty()) {
                         this.filterServerTable.remove(brokerAddr);
@@ -163,6 +199,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // broker集群信息
                 if (MixAll.MASTER_ID != brokerId) {
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (masterAddr != null) {
@@ -183,6 +220,12 @@ public class RouteInfoManager {
         return result;
     }
 
+    /**
+     * 是否Broker Topic配置有变化
+     * @param brokerAddr broker地址
+     * @param dataVersion 数据版本
+     * @return 是否变化
+     */
     public boolean isBrokerTopicConfigChanged(final String brokerAddr, final DataVersion dataVersion) {
         DataVersion prev = queryBrokerTopicConfig(brokerAddr);
         return null == prev || !prev.equals(dataVersion);
@@ -203,6 +246,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 更新topic队列信息
+     * @param brokerName broker名
+     * @param topicConfig topic配置
+     */
     private void createAndUpdateQueueData(final String brokerName, final TopicConfig topicConfig) {
         QueueData queueData = new QueueData();
         queueData.setBrokerName(brokerName);
@@ -337,6 +385,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 移除broker名下对应的topic
+     *
+     * @param brokerName broker名
+     */
     private void removeTopicByBrokerName(final String brokerName) {
         Iterator<Entry<String, List<QueueData>>> itMap = this.topicQueueTable.entrySet().iterator();
         while (itMap.hasNext()) {
@@ -741,10 +794,25 @@ public class RouteInfoManager {
     }
 }
 
+/**
+ * Broker连接信息
+ */
 class BrokerLiveInfo {
+    /**
+     * 最后更新时间
+     */
     private long lastUpdateTimestamp;
+    /**
+     * 数据版本
+     */
     private DataVersion dataVersion;
+    /**
+     * 连接信息
+     */
     private Channel channel;
+    /**
+     * ha服务器地址
+     */
     private String haServerAddr;
 
     public BrokerLiveInfo(long lastUpdateTimestamp, DataVersion dataVersion, Channel channel,

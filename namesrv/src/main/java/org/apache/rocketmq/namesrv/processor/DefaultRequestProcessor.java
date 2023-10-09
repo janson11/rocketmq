@@ -79,6 +79,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
 
 
         switch (request.getCode()) {
+            // KV 增删改查
             case RequestCode.PUT_KV_CONFIG:
                 return this.putKVConfig(ctx, request);
             case RequestCode.GET_KV_CONFIG:
@@ -87,14 +88,14 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
                 return this.deleteKVConfig(ctx, request);
             case RequestCode.QUERY_DATA_VERSION:
                 return queryBrokerTopicConfig(ctx, request);
-            case RequestCode.REGISTER_BROKER:
+            case RequestCode.REGISTER_BROKER: // 注册Broker
                 Version brokerVersion = MQVersion.value2Version(request.getVersion());
                 if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
                     return this.registerBrokerWithFilterServer(ctx, request);
                 } else {
                     return this.registerBroker(ctx, request);
                 }
-            case RequestCode.UNREGISTER_BROKER:
+            case RequestCode.UNREGISTER_BROKER: // 移除注册Broker
                 return this.unregisterBroker(ctx, request);
             case RequestCode.GET_ROUTEINTO_BY_TOPIC:
                 return this.getRouteInfoByTopic(ctx, request);
@@ -190,6 +191,13 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * 注册带filtersrv的broker
+     * @param ctx ctx
+     * @param request 注册请求
+     * @return 响应
+     * @throws RemotingCommandException 解析请求异常
+     */
     public RemotingCommand registerBrokerWithFilterServer(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
@@ -229,6 +237,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         responseHeader.setHaServerAddr(result.getHaServerAddr());
         responseHeader.setMasterAddr(result.getMasterAddr());
 
+        // 顺序消息配置
         byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
         response.setBody(jsonValue);
 
