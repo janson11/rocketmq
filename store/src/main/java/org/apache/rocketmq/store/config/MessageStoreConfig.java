@@ -22,21 +22,26 @@ import org.apache.rocketmq.store.ConsumeQueue;
 
 public class MessageStoreConfig {
     //The root directory in which the log data is kept
+    // data目录
     @ImportantField
     private String storePathRootDir = System.getProperty("user.home") + File.separator + "store";
 
     //The directory in which the commitlog is kept
+    // commitlog目录
     @ImportantField
     private String storePathCommitLog = System.getProperty("user.home") + File.separator + "store"
         + File.separator + "commitlog";
 
     // CommitLog file size,default is 1G
+    // 每个commitLog文件大小，默认是1G
     private int mapedFileSizeCommitLog = 1024 * 1024 * 1024;
     // ConsumeQueue file size,default is 30W
+    // 每个消费队列文件大小，每个文件30W消息
     private int mapedFileSizeConsumeQueue = 300000 * ConsumeQueue.CQ_STORE_UNIT_SIZE;
     // enable consume queue ext
     private boolean enableConsumeQueueExt = false;
     // ConsumeQueue extend file size, 48M
+    // 消费队列扩展文件大小,默认48M
     private int mappedFileSizeConsumeQueueExt = 48 * 1024 * 1024;
     // Bit count of filter bit map.
     // this will be set by pipe of calculate filter bit map.
@@ -44,11 +49,13 @@ public class MessageStoreConfig {
 
     // CommitLog flush interval
     // flush data to disk
+    // CommitLog刷新数据频率 周期，单位：毫秒 默认是500ms
     @ImportantField
     private int flushIntervalCommitLog = 500;
 
     // Only used if TransientStorePool enabled
     // flush data to FileChannel
+    // 仅当TransientStorePool是可以用的，刷新数据到文件通道是200ms
     @ImportantField
     private int commitIntervalCommitLog = 200;
 
@@ -59,9 +66,11 @@ public class MessageStoreConfig {
     private boolean useReentrantLockWhenPutMessage = false;
 
     // Whether schedule flush,default is real-time
+    //  flush CommitLog 是否是定时的
     @ImportantField
     private boolean flushCommitLogTimed = false;
     // ConsumeQueue flush interval
+    // 消费队列刷新间隔，默认1000ms
     private int flushIntervalConsumeQueue = 1000;
     // Resource reclaim interval
     private int cleanResourceInterval = 10000;
@@ -76,6 +85,7 @@ public class MessageStoreConfig {
     private String deleteWhen = "04";
     private int diskMaxUsedSpaceRatio = 75;
     // The number of hours to keep a log file before deleting it (in hours)
+    // 文件保存时间，默认是72小时
     @ImportantField
     private int fileReservedTime = 72;
     // Flow control for ConsumeQueue
@@ -87,14 +97,20 @@ public class MessageStoreConfig {
     // This check adds some overhead,so it may be disabled in cases seeking extreme performance.
     private boolean checkCRCOnRecover = true;
     // How many pages are to be flushed when flush CommitLog
+    // flush commitLog 最小分页
     private int flushCommitLogLeastPages = 4;
     // How many pages are to be committed when commit data to file
+    // commit commitLog 最小分页
     private int commitCommitLogLeastPages = 4;
     // Flush page size when the disk in warming state
     private int flushLeastPagesWhenWarmMapedFile = 1024 / 4 * 16;
     // How many pages are to be flushed when flush ConsumeQueue
     private int flushConsumeQueueLeastPages = 2;
+    // flush commitLog 大周期
     private int flushCommitLogThoroughInterval = 1000 * 10;
+    /**
+     * commit commitLog 大周期
+     */
     private int commitCommitLogThoroughInterval = 200;
     private int flushConsumeQueueThoroughInterval = 1000 * 60;
     @ImportantField
@@ -126,11 +142,18 @@ public class MessageStoreConfig {
     @ImportantField
     private FlushDiskType flushDiskType = FlushDiskType.ASYNC_FLUSH;
     private int syncFlushTimeout = 1000 * 5;
+    /**
+     * 消息延迟级别字符串配置
+     */
     private String messageDelayLevel = "1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h";
     private long flushDelayOffsetInterval = 1000 * 10;
     @ImportantField
     private boolean cleanFileForciblyEnable = true;
     private boolean warmMapedFileEnable = false;
+    /**
+     * slave节点是否检查消费offset
+     * 在拉取消息时，由于各种情况，拉取请求的offset可能不正确，是否修复生成新的拉取offset给client端。
+     */
     private boolean offsetCheckInSlave = false;
     private boolean debugLockEnable = false;
     private boolean duplicationEnable = false;

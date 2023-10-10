@@ -263,14 +263,18 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Send message in synchronous mode. This method returns only when the sending procedure totally completes.
+     * 以同步模式发送消息。此方法仅在发送过程完全完成时返回
      * </p>
      *
      * <strong>Warn:</strong> this method has internal retry-mechanism, that is, internal implementation will retry
      * {@link #retryTimesWhenSendFailed} times before claiming failure. As a result, multiple messages may potentially
      * delivered to broker(s). It's up to the application developers to resolve potential duplication issue.
+     * 警告：
+     * 此方法具有内部重试机制，即内部实现在声明失败之前将重试重试次数当发送失败次数。
+     * 因此，可能会将多条消息传递到代理。由应用程序开发人员来解决潜在的重复问题
      *
-     * @param msg Message to send.
-     * @return {@link SendResult} instance to inform senders details of the deliverable, say Message ID of the message,
+     * @param msg Message to send. 发送的消息
+     * @return {@link SendResult} instance to inform senders details of the deliverable, say Message ID of the message,发送结果
      * {@link SendStatus} indicating broker storage/replication status, message queue sent to, etc.
      * @throws MQClientException if there is any client error.
      * @throws RemotingException if there is any network-tier error.
