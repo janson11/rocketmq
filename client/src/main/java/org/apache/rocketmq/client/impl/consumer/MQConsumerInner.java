@@ -26,6 +26,7 @@ import org.apache.rocketmq.common.protocol.heartbeat.SubscriptionData;
 
 /**
  * Consumer inner interface
+ * 消费内部接口
  */
 public interface MQConsumerInner {
     String groupName();
@@ -38,6 +39,9 @@ public interface MQConsumerInner {
 
     Set<SubscriptionData> subscriptions();
 
+    /**
+     * 执行平衡
+     */
     void doRebalance();
 
     void persistConsumerOffset();

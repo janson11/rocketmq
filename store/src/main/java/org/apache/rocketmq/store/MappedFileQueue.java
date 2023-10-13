@@ -191,14 +191,25 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 获取最后一个可写入的映射文件。
+     * 当最后一个文件已经满的时候，创建一个新的文件
+     *
+     * @param startOffset 开始offset。用于一个映射文件都不存在时，创建的起始位置
+     * @param needCreate 是否需要创建
+     * @return 映射文件
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
+        // 创建文件开始offset。-1时，不创建
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
-
+        // 一个映射文件都不存在
         if (mappedFileLast == null) {
+            // 计算startOffset对应从哪个offset开始。
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
+        // 最后一个文件已满
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
@@ -237,6 +248,12 @@ public class MappedFileQueue {
         return getLastMappedFile(startOffset, true);
     }
 
+    /**
+     * 获取最后一个MappedFile
+     * IndexOutOfBoundsException的容错处理
+     *
+     * @return 最后一个映射文件
+     */
     public MappedFile getLastMappedFile() {
         MappedFile mappedFileLast = null;
 
@@ -454,6 +471,7 @@ public class MappedFileQueue {
 
     /**
      * Finds a mapped file by offset.
+     * 根据offset获取映射文件
      *
      * @param offset Offset.
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.

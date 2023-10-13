@@ -24,18 +24,24 @@ import org.apache.rocketmq.common.message.MessageQueue;
 
 /**
  * Computer room Hashing queue algorithm, such as Alipay logic room
+ * 分配策略 - 首先筛选可消费Broker对应的消费队列，筛选后的消费队列平均分配。
  */
 public class AllocateMessageQueueByMachineRoom implements AllocateMessageQueueStrategy {
+    /**
+     * 消费者消费brokerName集合
+     */
     private Set<String> consumeridcs;
 
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,
         List<String> cidAll) {
+        // 参数校验
         List<MessageQueue> result = new ArrayList<MessageQueue>();
         int currentIndex = cidAll.indexOf(currentCID);
         if (currentIndex < 0) {
             return result;
         }
+        // 计算符合当前配置的消费者数组('consumeridcs')对应的消费队列
         List<MessageQueue> premqAll = new ArrayList<MessageQueue>();
         for (MessageQueue mq : mqAll) {
             String[] temp = mq.getBrokerName().split("@");
@@ -44,6 +50,7 @@ public class AllocateMessageQueueByMachineRoom implements AllocateMessageQueueSt
             }
         }
 
+        // 平均分配
         int mod = premqAll.size() / cidAll.size();
         int rem = premqAll.size() % cidAll.size();
         int startIndex = mod * currentIndex;
