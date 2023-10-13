@@ -39,7 +39,9 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
 import org.apache.rocketmq.store.CommitLog;
 import org.apache.rocketmq.store.DefaultMessageStore;
-
+/**
+ * 高可用服务
+ */
 public class HAService {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
@@ -85,6 +87,12 @@ public class HAService {
         return result;
     }
 
+
+    /**
+     * 通知slave进度
+     *
+     * @param offset slave进度
+     */
     public void notifyTransferSome(final long offset) {
         for (long value = this.push2SlaveMaxOffset.get(); offset > value; ) {
             boolean ok = this.push2SlaveMaxOffset.compareAndSet(value, offset);
@@ -279,8 +287,10 @@ public class HAService {
             synchronized (this.requestsRead) {
                 if (!this.requestsRead.isEmpty()) {
                     for (CommitLog.GroupCommitRequest req : this.requestsRead) {
+                        // 等待Slave上传进度
                         boolean transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
                         for (int i = 0; !transferOK && i < 5; i++) {
+                            // 唤醒
                             this.notifyTransferObject.waitForRunning(1000);
                             transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
                         }
@@ -289,6 +299,7 @@ public class HAService {
                             log.warn("transfer messsage to slave timeout, " + req.getNextOffset());
                         }
 
+                        // 唤醒请求，并设置是否Slave同步成功
                         req.wakeupCustomer(transferOK);
                     }
 
@@ -325,21 +336,43 @@ public class HAService {
 
     class HAClient extends ServiceThread {
         private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024 * 4;
+        /**
+         * Master节点地址
+         */
         private final AtomicReference<String> masterAddress = new AtomicReference<>();
         private final ByteBuffer reportOffset = ByteBuffer.allocate(8);
         private SocketChannel socketChannel;
         private Selector selector;
+        /**
+         * 最后读取数据时间，即Master写入socket事件
+         */
         private long lastWriteTimestamp = System.currentTimeMillis();
 
         private long currentReportedOffset = 0;
+        /**
+         * {@link #byteBufferRead}处理的到位
+         * 主要处理粘包问题，保证数据读取全
+         */
         private int dispatchPostion = 0;
+        /**
+         * 读取数据字节缓冲区
+         */
         private ByteBuffer byteBufferRead = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);
+        /**
+         * 读取数据字节缓冲区备份
+         * 当{@link #byteBufferRead}写入已满时，未处理完内容放到改变量{@link #reallocateByteBuffer()}
+         */
         private ByteBuffer byteBufferBackup = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);
 
         public HAClient() throws IOException {
             this.selector = RemotingUtil.openSelector();
         }
 
+        /**
+         * 更新Master地址
+         *
+         * @param newAddr Master地址
+         */
         public void updateMasterAddress(final String newAddr) {
             String currentAddr = this.masterAddress.get();
             if (currentAddr == null || !currentAddr.equals(newAddr)) {
@@ -348,6 +381,11 @@ public class HAService {
             }
         }
 
+        /**
+         * 是否满足上报进度的时间
+         *
+         * @return 是否
+         */
         private boolean isTimeToReportOffset() {
             long interval =
                 HAService.this.defaultMessageStore.getSystemClock().now() - this.lastWriteTimestamp;
@@ -357,6 +395,12 @@ public class HAService {
             return needHeart;
         }
 
+        /**
+         * 上报进度
+         *
+         * @param maxOffset 进度
+         * @return 是否上报成功
+         */
         private boolean reportSlaveMaxOffset(final long maxOffset) {
             this.reportOffset.position(0);
             this.reportOffset.limit(8);
@@ -377,7 +421,12 @@ public class HAService {
             return !this.reportOffset.hasRemaining();
         }
 
+
+        /**
+         * 重新分配字节缓冲区
+         */
         private void reallocateByteBuffer() {
+            // 有剩余内容未处理，放入备份区
             int remain = READ_MAX_BUFFER_SIZE - this.dispatchPostion;
             if (remain > 0) {
                 this.byteBufferRead.position(this.dispatchPostion);
@@ -391,6 +440,7 @@ public class HAService {
 
             this.byteBufferRead.position(remain);
             this.byteBufferRead.limit(READ_MAX_BUFFER_SIZE);
+            // 重置处理位置
             this.dispatchPostion = 0;
         }
 

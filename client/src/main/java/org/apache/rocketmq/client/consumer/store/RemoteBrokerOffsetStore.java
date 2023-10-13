@@ -42,7 +42,13 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 public class RemoteBrokerOffsetStore implements OffsetStore {
     private final static InternalLogger log = ClientLogger.getLog();
     private final MQClientInstance mQClientFactory;
+    /**
+     * 消费分组
+     */
     private final String groupName;
+    /**
+     * 消费进度
+     */
     private ConcurrentMap<MessageQueue, AtomicLong> offsetTable =
         new ConcurrentHashMap<MessageQueue, AtomicLong>();
 
@@ -111,11 +117,17 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
         return -1;
     }
 
+    /**
+     * 持久化指定消息队列数组的消费进度到Broker，并移除非指定消息队列
+     *
+     * @param mqs 指定消息队列
+     */
     @Override
     public void persistAll(Set<MessageQueue> mqs) {
         if (null == mqs || mqs.isEmpty())
             return;
 
+        // 持久化消息队列
         final HashSet<MessageQueue> unusedMQ = new HashSet<MessageQueue>();
         if (!mqs.isEmpty()) {
             for (Map.Entry<MessageQueue, AtomicLong> entry : this.offsetTable.entrySet()) {
@@ -140,6 +152,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
             }
         }
 
+        // 移除不适用的消息队列
         if (!unusedMQ.isEmpty()) {
             for (MessageQueue mq : unusedMQ) {
                 this.offsetTable.remove(mq);
@@ -148,6 +161,11 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
         }
     }
 
+    /**
+     * 持久化队列消费进度到Broker
+     *
+     * @param mq MQ
+     */
     @Override
     public void persist(MessageQueue mq) {
         AtomicLong offset = this.offsetTable.get(mq);

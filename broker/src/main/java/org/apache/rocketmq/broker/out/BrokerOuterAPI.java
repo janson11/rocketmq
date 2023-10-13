@@ -111,6 +111,21 @@ public class BrokerOuterAPI {
         this.remotingClient.updateNameServerAddressList(lst);
     }
 
+    /**
+     * 注册到多个 Namesrv
+     *
+     * @param clusterName 集群名
+     * @param brokerAddr broker地址
+     * @param brokerName brokerName
+     * @param brokerId brokerId
+     * @param haServerAddr 高可用服务地址。用于broker master节点给 slave节点同步数据
+     * @param topicConfigWrapper topic配置信息
+     * @param filterServerList filtersrv数组
+     * @param oneway 是否oneway通信方式
+     * @param timeoutMills 请求超时时间
+     * @param compressed 是否压缩
+     * @return 注册结果
+     */
     public List<RegisterBrokerResult> registerBrokerAll(
         final String clusterName,
         final String brokerAddr,
@@ -125,6 +140,7 @@ public class BrokerOuterAPI {
 
         final List<RegisterBrokerResult> registerBrokerResultList = Lists.newArrayList();
         List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
+        // 循环多个 Namesrv
         if (nameServerAddressList != null && nameServerAddressList.size() > 0) {
 
             final RegisterBrokerRequestHeader requestHeader = new RegisterBrokerRequestHeader();
