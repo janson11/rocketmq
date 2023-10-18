@@ -273,6 +273,9 @@ public class HAService {
             }
         }
 
+        /**
+         * 通知slave进度。唤醒等待锁。
+         */
         public void notifyTransferSome() {
             this.notifyTransferObject.wakeup();
         }
@@ -480,16 +483,29 @@ public class HAService {
             return true;
         }
 
+
+        /**
+         * 读取Master传输的CommitLog数据，并返回是异常
+         * 如果读取到数据，写入CommitLog
+         * 异常原因：
+         *   1. Master传输来的数据offset 不等于 Slave的CommitLog数据最大offset
+         *   2. 上报到Master进度失败
+         *
+         * @return 是否异常
+         */
         private boolean dispatchReadRequest() {
             final int msgHeaderSize = 8 + 4; // phyoffset + size
             int readSocketPos = this.byteBufferRead.position();
 
             while (true) {
+                // 读取到请求
                 int diff = this.byteBufferRead.position() - this.dispatchPostion;
                 if (diff >= msgHeaderSize) {
+                    // 读取masterPhyOffset、bodySize。使用dispatchPostion的原因是：处理数据“粘包”导致数据读取不完整。
                     long masterPhyOffset = this.byteBufferRead.getLong(this.dispatchPostion);
                     int bodySize = this.byteBufferRead.getInt(this.dispatchPostion + 8);
 
+                    // 校验 Master传输来的数据offset 是否和 Slave的CommitLog数据最大offset 是否相同。
                     long slavePhyOffset = HAService.this.defaultMessageStore.getMaxPhyOffset();
 
                     if (slavePhyOffset != 0) {
@@ -500,24 +516,29 @@ public class HAService {
                         }
                     }
 
+                    // 读取到消息
                     if (diff >= (msgHeaderSize + bodySize)) {
+                        // 写入CommitLog
                         byte[] bodyData = new byte[bodySize];
                         this.byteBufferRead.position(this.dispatchPostion + msgHeaderSize);
                         this.byteBufferRead.get(bodyData);
 
                         HAService.this.defaultMessageStore.appendToCommitLog(masterPhyOffset, bodyData);
-
+                        // 设置处理到的位置
                         this.byteBufferRead.position(readSocketPos);
                         this.dispatchPostion += msgHeaderSize + bodySize;
 
+                        // 上报到Master进度
                         if (!reportSlaveMaxOffsetPlus()) {
                             return false;
                         }
 
+                        // 继续循环
                         continue;
                     }
                 }
 
+                // 空间写满，重新分配空间
                 if (!this.byteBufferRead.hasRemaining()) {
                     this.reallocateByteBuffer();
                 }
@@ -528,6 +549,12 @@ public class HAService {
             return true;
         }
 
+        /**
+         * 上报Master进度。
+         * 如果上报失败，关闭连接
+         *
+         * @return 是否上报成功
+         */
         private boolean reportSlaveMaxOffsetPlus() {
             boolean result = true;
             long currentPhyOffset = HAService.this.defaultMessageStore.getMaxPhyOffset();
@@ -543,6 +570,11 @@ public class HAService {
             return result;
         }
 
+        /**
+         * 连接Master节点
+         * @return 是否连接成功
+         * @throws ClosedChannelException 当注册读事件失败时
+         */
         private boolean connectMaster() throws ClosedChannelException {
             if (null == socketChannel) {
                 String addr = this.masterAddress.get();
@@ -550,6 +582,7 @@ public class HAService {
 
                     SocketAddress socketAddress = RemotingUtil.string2SocketAddress(addr);
                     if (socketAddress != null) {
+                        // 连接Master节点。如果连接失败，直接关闭，不抛出异常。
                         this.socketChannel = RemotingUtil.connect(socketAddress);
                         if (this.socketChannel != null) {
                             this.socketChannel.register(this.selector, SelectionKey.OP_READ);
@@ -565,6 +598,9 @@ public class HAService {
             return this.socketChannel != null;
         }
 
+        /**
+         * 关闭Master节点
+         */
         private void closeMaster() {
             if (null != this.socketChannel) {
                 try {
@@ -600,6 +636,7 @@ public class HAService {
                 try {
                     if (this.connectMaster()) {
 
+                        // 若到满足上报间隔，上报到Master进度
                         if (this.isTimeToReportOffset()) {
                             boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
                             if (!result) {
@@ -609,15 +646,18 @@ public class HAService {
 
                         this.selector.select(1000);
 
+                        // 处理读取事件
                         boolean ok = this.processReadEvent();
                         if (!ok) {
                             this.closeMaster();
                         }
 
+                        // 若进度有变化，上报到Master进度
                         if (!reportSlaveMaxOffsetPlus()) {
                             continue;
                         }
 
+                        // Master过久未返回数据，关闭连接
                         long interval =
                             HAService.this.getDefaultMessageStore().getSystemClock().now()
                                 - this.lastWriteTimestamp;

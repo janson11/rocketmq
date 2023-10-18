@@ -49,6 +49,15 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         this.brokerController = brokerController;
     }
 
+
+    /**
+     * 结束事务，提交/回滚消息
+     *
+     * @param ctx ctx
+     * @param request 请求
+     * @return 响应
+     * @throws RemotingCommandException 当解析请求失败时
+     */
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws
         RemotingCommandException {
@@ -163,6 +172,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
     private RemotingCommand checkPrepareMessage(MessageExt msgExt, EndTransactionRequestHeader requestHeader) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         if (msgExt != null) {
+            // 校验 producerGroup
             final String pgroupRead = msgExt.getProperty(MessageConst.PROPERTY_PRODUCER_GROUP);
             if (!pgroupRead.equals(requestHeader.getProducerGroup())) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -170,12 +180,14 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                 return response;
             }
 
+            // 校验 队列位置
             if (msgExt.getQueueOffset() != requestHeader.getTranStateTableOffset()) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("The transaction state table offset wrong");
                 return response;
             }
 
+            // 校验 CommitLog物理位置
             if (msgExt.getCommitLogOffset() != requestHeader.getCommitLogOffset()) {
                 response.setCode(ResponseCode.SYSTEM_ERROR);
                 response.setRemark("The commit log offset wrong");
@@ -190,7 +202,14 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * 生成消息
+     *
+     * @param msgExt 消息
+     * @return 消息
+     */
     private MessageExtBrokerInner endMessageTransaction(MessageExt msgExt) {
+        // 生成消息
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_TOPIC));
         msgInner.setQueueId(Integer.parseInt(msgExt.getUserProperty(MessageConst.PROPERTY_REAL_QUEUE_ID)));
@@ -218,6 +237,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
     private RemotingCommand sendFinalMessage(MessageExtBrokerInner msgInner) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         final PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
+        // 处理存储结果
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {
                 // Success

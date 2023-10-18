@@ -71,6 +71,13 @@ public class ScheduleMessageService extends ConfigManager {
         return queueId + 1;
     }
 
+    /**
+     * 根据 延迟级别 计算 消息队列编号
+     * QueueId = DelayLevel - 1
+     *
+     * @param delayLevel 延迟级别
+     * @return 消息队列编号
+     */
     public static int delayLevel2QueueId(final int delayLevel) {
         return delayLevel - 1;
     }
@@ -92,6 +99,15 @@ public class ScheduleMessageService extends ConfigManager {
         this.offsetTable.put(delayLevel, offset);
     }
 
+
+
+    /**
+     * 计算 投递时间【计划消费时间】
+     *
+     * @param delayLevel 延迟级别
+     * @param storeTimestamp 存储时间
+     * @return 投递时间【计划消费时间】
+     */
     public long computeDeliverTimestamp(final int delayLevel, final long storeTimestamp) {
         Long time = this.delayLevelTable.get(delayLevel);
         if (time != null) {
@@ -103,6 +119,7 @@ public class ScheduleMessageService extends ConfigManager {
 
     public void start() {
 
+        // 定时发送消息
         for (Map.Entry<Integer, Long> entry : this.delayLevelTable.entrySet()) {
             Integer level = entry.getKey();
             Long timeDelay = entry.getValue();
@@ -116,6 +133,7 @@ public class ScheduleMessageService extends ConfigManager {
             }
         }
 
+        // 定时持久化发送进度
         this.timer.scheduleAtFixedRate(new TimerTask() {
 
             @Override
@@ -202,8 +220,17 @@ public class ScheduleMessageService extends ConfigManager {
         return true;
     }
 
+    /**
+     * 发送（投递）延迟消息定时任务
+     */
     class DeliverDelayedMessageTimerTask extends TimerTask {
+        /**
+         * 延迟级别
+         */
         private final int delayLevel;
+        /**
+         * 位置
+         */
         private final long offset;
 
         public DeliverDelayedMessageTimerTask(int delayLevel, long offset) {
@@ -224,7 +251,12 @@ public class ScheduleMessageService extends ConfigManager {
         }
 
         /**
-         * @return
+         * 纠正可投递时间。
+         * 因为发送级别对应的发送间隔可以调整，如果超过当前间隔，则修正成当前配置，避免后面的消息无法发送。
+         *
+         * @param now 当前时间
+         * @param deliverTimestamp 投递时间
+         * @return 纠正结果
          */
         private long correctDeliverTimestamp(final long now, final long deliverTimestamp) {
 
@@ -277,12 +309,14 @@ public class ScheduleMessageService extends ConfigManager {
                             long countdown = deliverTimestamp - now;
 
                             if (countdown <= 0) {
+                                // 消息到达可发送时间
                                 MessageExt msgExt =
                                     ScheduleMessageService.this.defaultMessageStore.lookMessageByOffset(
                                         offsetPy, sizePy);
 
                                 if (msgExt != null) {
                                     try {
+                                        // 发送消息
                                         MessageExtBrokerInner msgInner = this.messageTimeup(msgExt);
                                         PutMessageResult putMessageResult =
                                             ScheduleMessageService.this.defaultMessageStore
@@ -291,14 +325,16 @@ public class ScheduleMessageService extends ConfigManager {
                                         if (putMessageResult != null
                                             && putMessageResult.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
                                             continue;
-                                        } else {
+                                        } else {// 发送失败
                                             // XXX: warn and notify me
                                             log.error(
                                                 "ScheduleMessageService, a message time up, but reput it failed, topic: {} msgId {}",
                                                 msgExt.getTopic(), msgExt.getMsgId());
+                                            // 安排下一次任务
                                             ScheduleMessageService.this.timer.schedule(
                                                 new DeliverDelayedMessageTimerTask(this.delayLevel,
                                                     nextOffset), DELAY_FOR_A_PERIOD);
+                                            // 更新进度
                                             ScheduleMessageService.this.updateOffset(this.delayLevel,
                                                 nextOffset);
                                             return;
@@ -317,17 +353,21 @@ public class ScheduleMessageService extends ConfigManager {
                                     }
                                 }
                             } else {
+                                // 安排下一次任务
                                 ScheduleMessageService.this.timer.schedule(
                                     new DeliverDelayedMessageTimerTask(this.delayLevel, nextOffset),
                                     countdown);
+                                // 更新进度
                                 ScheduleMessageService.this.updateOffset(this.delayLevel, nextOffset);
                                 return;
                             }
                         } // end of for
 
                         nextOffset = offset + (i / ConsumeQueue.CQ_STORE_UNIT_SIZE);
+                        // 安排下一次任务
                         ScheduleMessageService.this.timer.schedule(new DeliverDelayedMessageTimerTask(
                             this.delayLevel, nextOffset), DELAY_FOR_A_WHILE);
+                        // 更新进度
                         ScheduleMessageService.this.updateOffset(this.delayLevel, nextOffset);
                         return;
                     } finally {
@@ -335,7 +375,7 @@ public class ScheduleMessageService extends ConfigManager {
                         bufferCQ.release();
                     }
                 } // end of if (bufferCQ != null)
-                else {
+                else {// 消费队列已经被删除部分，跳转到最小的消费进度
 
                     long cqMinOffset = cq.getMinOffsetInQueue();
                     if (offset < cqMinOffset) {
@@ -350,6 +390,13 @@ public class ScheduleMessageService extends ConfigManager {
                 failScheduleOffset), DELAY_FOR_A_WHILE);
         }
 
+
+        /**
+         * 设置消息内容
+         *
+         * @param msgExt 消息
+         * @return 消息
+         */
         private MessageExtBrokerInner messageTimeup(MessageExt msgExt) {
             MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
             msgInner.setBody(msgExt.getBody());

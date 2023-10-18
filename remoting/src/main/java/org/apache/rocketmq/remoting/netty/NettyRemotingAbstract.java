@@ -70,6 +70,9 @@ public abstract class NettyRemotingAbstract {
 
     /**
      * This map caches all on-going requests.
+     * responseTable缓存所有正在进行的请求
+     * 保存请求码与响应关联映射
+     * opaque表示请求发起方在同个连接上不同的请求标识代码
      */
     protected final ConcurrentMap<Integer /* opaque */, ResponseFuture> responseTable =
         new ConcurrentHashMap<Integer, ResponseFuture>(256);
@@ -77,6 +80,13 @@ public abstract class NettyRemotingAbstract {
     /**
      * This container holds all processors per request code, aka, for each incoming request, we may look up the
      * responding processor in this map to handle the request.
+     * 这个容器保存每个请求代码的所有处理器，也就是说，对于每个传入的请求，我们可以在此映射中查找响应处理器来处理请求
+     * processorTable请求业务码与业务处理、业务线程池的映射变量
+     *
+     * note:
+     * RocketMQ这种做法是为了给不同类型的请求业务码指定不同的处理器Processor处理，同时消息实际的处理并不是在当前线程，
+     * 而是被封装成task放到业务处理器Processor对应的线程池中完成异步执行。
+     * (在RocketMQ中能看到很多地方都是这样的处理，这样的设计能够最大程度的保证异步，保证每个线程都专注处理自己负责的东西）
      */
     protected final HashMap<Integer/* request code */, Pair<NettyRequestProcessor, ExecutorService>> processorTable =
         new HashMap<Integer, Pair<NettyRequestProcessor, ExecutorService>>(64);
@@ -136,27 +146,33 @@ public abstract class NettyRemotingAbstract {
 
     /**
      * Entry of incoming command processing.
+     * 处理请求命令的入口
      *
      * <p>
      * <strong>Note:</strong>
      * The incoming remoting command may be
+     * 传入的远程处理命令可能是
      * <ul>
      * <li>An inquiry request from a remote peer component;</li>
+     * 来自远程对等组件的查询请求
      * <li>A response to a previous request issued by this very participant.</li>
+     * 对这位参与者先前发出的请求的回应
      * </ul>
      * </p>
      *
-     * @param ctx Channel handler context.
-     * @param msg incoming remoting command.
+     * @param ctx Channel handler context. 通道处理器上下文
+     * @param msg incoming remoting command. 传入的远程命令
      * @throws Exception if there were any error while processing the incoming command.
      */
     public void processMessageReceived(ChannelHandlerContext ctx, RemotingCommand msg) throws Exception {
         final RemotingCommand cmd = msg;
         if (cmd != null) {
             switch (cmd.getType()) {
+                // 请求命令
                 case REQUEST_COMMAND:
                     processRequestCommand(ctx, cmd);
                     break;
+                // 响应命令
                 case RESPONSE_COMMAND:
                     processResponseCommand(ctx, cmd);
                     break;
@@ -185,11 +201,13 @@ public abstract class NettyRemotingAbstract {
 
     /**
      * Process incoming request command issued by remote peer.
+     * 处理远程对等方发出的传入请求命令
      *
      * @param ctx channel handler context.
      * @param cmd request command.
      */
     public void processRequestCommand(final ChannelHandlerContext ctx, final RemotingCommand cmd) {
+        //根据RemotingCommand中的code获取processor和ExecutorService
         final Pair<NettyRequestProcessor, ExecutorService> matched = this.processorTable.get(cmd.getCode());
         final Pair<NettyRequestProcessor, ExecutorService> pair = null == matched ? this.defaultRequestProcessor : matched;
         final int opaque = cmd.getOpaque();
@@ -199,8 +217,11 @@ public abstract class NettyRemotingAbstract {
                 @Override
                 public void run() {
                     try {
+                        //rpc before hook
                         doBeforeRpcHooks(RemotingHelper.parseChannelRemoteAddr(ctx.channel()), cmd);
+                        //processor处理请求
                         final RemotingCommand response = pair.getObject1().processRequest(ctx, cmd);
+                        //rpc after hook
                         doAfterRpcHooks(RemotingHelper.parseChannelRemoteAddr(ctx.channel()), cmd, response);
 
                         if (!cmd.isOnewayRPC()) {
@@ -241,7 +262,9 @@ public abstract class NettyRemotingAbstract {
             }
 
             try {
+                //封装requestTask
                 final RequestTask requestTask = new RequestTask(run, ctx.channel(), cmd);
+                //线程池提交requestTask
                 pair.getObject2().submit(requestTask);
             } catch (RejectedExecutionException e) {
                 if ((System.currentTimeMillis() % 10000) == 0) {
@@ -275,7 +298,9 @@ public abstract class NettyRemotingAbstract {
      * @param cmd response command instance.
      */
     public void processResponseCommand(ChannelHandlerContext ctx, RemotingCommand cmd) {
+        //从RemotingCommand中获取opaque值
         final int opaque = cmd.getOpaque();
+        //从本地缓存的responseTable这个Map中取出本次异步通信连接对应的ResponseFuture变量
         final ResponseFuture responseFuture = responseTable.get(opaque);
         if (responseFuture != null) {
             responseFuture.setResponseCommand(cmd);
@@ -283,8 +308,10 @@ public abstract class NettyRemotingAbstract {
             responseTable.remove(opaque);
 
             if (responseFuture.getInvokeCallback() != null) {
+                //在这里真正去执行Client注入进来的异步回调方法
                 executeInvokeCallback(responseFuture);
             } else {
+                //否则释放responseFuture变量
                 responseFuture.putResponse(cmd);
                 responseFuture.release();
             }
@@ -436,10 +463,23 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
+    /**
+     * invokeAsync（异步调用）
+     *
+     * @param channel 通道
+     * @param request 请求
+     * @param timeoutMillis 超时时间
+     * @param invokeCallback 回调
+     * @throws InterruptedException 当发送中断时
+     * @throws RemotingTooMuchRequestException 远程调用太多请求异常
+     * @throws RemotingTimeoutException 远程调用超时异常
+     * @throws RemotingSendRequestException 远程发送请求异常
+     */
     public void invokeAsyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis,
         final InvokeCallback invokeCallback)
         throws InterruptedException, RemotingTooMuchRequestException, RemotingTimeoutException, RemotingSendRequestException {
         long beginStartTime = System.currentTimeMillis();
+        //相当于request ID, RemotingCommand会为每一个request产生一个request ID, 从0开始, 每次加1
         final int opaque = request.getOpaque();
         boolean acquired = this.semaphoreAsync.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
         if (acquired) {
@@ -450,21 +490,28 @@ public abstract class NettyRemotingAbstract {
                 throw new RemotingTimeoutException("invokeAsyncImpl call timeout");
             }
 
+            //根据request ID构建ResponseFuture
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, timeoutMillis - costTime, invokeCallback, once);
+            //将ResponseFuture放入responseTable
             this.responseTable.put(opaque, responseFuture);
             try {
+                //使用Netty的channel发送请求数据
                 channel.writeAndFlush(request).addListener(new ChannelFutureListener() {
+                    //消息发送后执行
                     @Override
                     public void operationComplete(ChannelFuture f) throws Exception {
                         if (f.isSuccess()) {
+                            //如果发送消息成功给Server，那么这里直接Set后return
                             responseFuture.setSendRequestOK(true);
                             return;
                         }
+                        //执行回调
                         requestFail(opaque);
                         log.warn("send a request command to channel <{}> failed.", RemotingHelper.parseChannelRemoteAddr(channel));
                     }
                 });
             } catch (Exception e) {
+                //异常处理
                 responseFuture.release();
                 log.warn("send a request command to channel <" + RemotingHelper.parseChannelRemoteAddr(channel) + "> Exception", e);
                 throw new RemotingSendRequestException(RemotingHelper.parseChannelRemoteAddr(channel), e);
@@ -495,6 +542,7 @@ public abstract class NettyRemotingAbstract {
             } catch (Throwable e) {
                 log.warn("execute callback in requestFail, and callback throw", e);
             } finally {
+                //释放信号量
                 responseFuture.release();
             }
         }

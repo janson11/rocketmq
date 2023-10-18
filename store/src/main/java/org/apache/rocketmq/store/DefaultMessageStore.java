@@ -1463,7 +1463,7 @@ public class DefaultMessageStore implements MessageStore {
         return runningFlags;
     }
 
-    public void doDispatch(DispatchRequest req) {
+    public void  doDispatch(DispatchRequest req) {
         for (CommitLogDispatcher dispatcher : this.dispatcherList) {
             dispatcher.dispatch(req);
         }
