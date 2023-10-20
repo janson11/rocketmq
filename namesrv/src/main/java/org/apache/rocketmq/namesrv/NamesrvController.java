@@ -75,15 +75,20 @@ public class NamesrvController {
 
     public boolean initialize() {
 
+        // 加载KV配置
         this.kvConfigManager.load();
 
+        // 创建NettyRemotingServer网络处理对象
         this.remotingServer = new NettyRemotingServer(this.nettyServerConfig, this.brokerHousekeepingService);
 
+        // 创建远程执行器对象
         this.remotingExecutor =
             Executors.newFixedThreadPool(nettyServerConfig.getServerWorkerThreads(), new ThreadFactoryImpl("RemotingExecutorThread_"));
 
+        // 注册处理器
         this.registerProcessor();
 
+        // 开启定时任务：每隔10s扫描一次Broker，移除不活跃的Broker
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -92,6 +97,7 @@ public class NamesrvController {
             }
         }, 5, 10, TimeUnit.SECONDS);
 
+        // 开启定时任务：每隔10min 打印一次KV配置
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -142,12 +148,13 @@ public class NamesrvController {
     }
 
     private void registerProcessor() {
+        // 是否是集群test
         if (namesrvConfig.isClusterTest()) {
 
             this.remotingServer.registerDefaultProcessor(new ClusterTestRequestProcessor(this, namesrvConfig.getProductEnvName()),
                 this.remotingExecutor);
         } else {
-
+            // 默认注册处理器
             this.remotingServer.registerDefaultProcessor(new DefaultRequestProcessor(this), this.remotingExecutor);
         }
     }
@@ -160,12 +167,21 @@ public class NamesrvController {
         }
     }
 
+    /**
+     * 停止
+     */
     public void shutdown() {
+        // 停止NettyRemotingServer网络处理对象【NRS】
         this.remotingServer.shutdown();
+        // 停止远程执行器对象
         this.remotingExecutor.shutdown();
+        // 停止NSScheduledThread调度服务
+        // 1、每隔10s扫描一次Broker，移除不活跃的Broker
+        // 2、每隔10min 打印一次KV配置
         this.scheduledExecutorService.shutdown();
 
         if (this.fileWatchService != null) {
+            // 停止文件监听服务
             this.fileWatchService.shutdown();
         }
     }

@@ -48,27 +48,35 @@ import org.apache.rocketmq.remoting.common.RemotingUtil;
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
+    /**
+     * 读写锁，控制下列各个Map在并发读写下的安全性
+     */
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     /**
      * topic与队列数据数组Map
      * 一个topic可以对应多个Broker
+     * 消息发送时根据路由表进行负载均衡
      */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
     /**
      * broker名 与 broker数据 Map
      * 一个broker名下可以有多个broker，即broker可以同名
+     * Broker基础信息，包括brokerName、所属集群名称、主备Broker地址
      */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
     /**
      * 集群与broker集合Map
+     * Broker集群信息，存储集群中所有Broker名称
      */
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
     /**
      * broker地址与broker连接信息Map
+     * Broker状态信息，NameServer每次收到心跳包是会替换该信息
      */
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
     /**
      * broker地址与filtersrv数组Map
+     * Broker上的FilterServer列表，用于类模式消息过滤。
      */
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
@@ -104,6 +112,7 @@ public class RouteInfoManager {
         TopicList topicList = new TopicList();
         try {
             try {
+                // 获取路由信息使用读锁（确保消息发送时的高并发）
                 this.lock.readLock().lockInterruptibly();
                 topicList.getTopicList().addAll(this.topicQueueTable.keySet());
             } finally {
@@ -143,6 +152,7 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
+                // 注册路由信息使用写锁
                 this.lock.writeLock().lockInterruptibly();
                 // 更新集群信息
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
@@ -468,15 +478,33 @@ public class RouteInfoManager {
         return null;
     }
 
+    /**
+     * 扫描不活跃的Broker
+     * 超过120s，则认为Broker失效
+     *
+     * note：
+     * 路由剔除机制中，Borker每隔30S向NameServer发送一次心跳，而NameServer是每隔10S扫描确定有没有不可用的主机（120S没心跳），
+     * 那么问题就来了！这种设计是存在问题的，就是NameServer中认为可用的Broker，实际上已经宕机了，
+     * 那么，某一时间段，从NameServer中读到的路由中包含了不可用的主机，会导致消息的生产/消费异常，不过不用担心，
+     * 在生产和消费端有故障规避策略及重试机制可以解决以上问题。
+     * 这个设计符合RocketMQ的设计理念：整体设计追求简单与性能，同时这样设计NameServer是可以做到无状态化的，
+     * 可以随意的部署多台，其代码也非常简单，非常轻量。
+     */
     public void scanNotActiveBroker() {
+        // 获得brokerLiveTable
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
+        // 遍历brokerLiveTable
         while (it.hasNext()) {
             Entry<String, BrokerLiveInfo> next = it.next();
             long last = next.getValue().getLastUpdateTimestamp();
+            // 如果收到心跳包的时间距离当前时间是否超过120s
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
+                // 关闭连接
                 RemotingUtil.closeChannel(next.getValue().getChannel());
+                // 移除broker
                 it.remove();
                 log.warn("The broker channel expired, {} {}ms", next.getKey(), BROKER_CHANNEL_EXPIRED_TIME);
+                // 更新路由表
                 this.onChannelDestroy(next.getKey(), next.getValue().getChannel());
             }
         }
