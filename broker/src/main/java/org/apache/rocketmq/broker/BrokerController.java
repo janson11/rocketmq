@@ -830,40 +830,49 @@ public class BrokerController {
     }
 
     public void start() throws Exception {
+        // 启动消息存储服务
         if (this.messageStore != null) {
             this.messageStore.start();
         }
 
+        // 启动远程服务【NRS】
         if (this.remotingServer != null) {
             this.remotingServer.start();
         }
 
+        // 启动快速远程服务【NRS 监听端口-2】
         if (this.fastRemotingServer != null) {
             this.fastRemotingServer.start();
         }
 
+        // 文件监听服务
         if (this.fileWatchService != null) {
             this.fileWatchService.start();
         }
 
+        // broker api 服务
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
 
+        // 拉取消息挂起维护线程服务
         if (this.pullRequestHoldService != null) {
             this.pullRequestHoldService.start();
         }
 
+        // 保持运行状态服务 【负责维护客户端的元数据信息，包括客户端连接信息、消费组消费信息】
         if (this.clientHousekeepingService != null) {
             this.clientHousekeepingService.start();
         }
 
+        // 过滤服务管理
         if (this.filterServerManager != null) {
             this.filterServerManager.start();
         }
 
         this.registerBrokerAll(true, false, true);
 
+        // 定时任务 【心跳，每隔30秒发送一次心跳信号】
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
@@ -876,14 +885,17 @@ public class BrokerController {
             }
         }, 1000 * 10, Math.max(10000, Math.min(brokerConfig.getRegisterNameServerPeriod(), 60000)), TimeUnit.MILLISECONDS);
 
+        // broker 统计管理
         if (this.brokerStatsManager != null) {
             this.brokerStatsManager.start();
         }
 
+        // broker 快速失败
         if (this.brokerFastFailure != null) {
             this.brokerFastFailure.start();
         }
 
+        // 开启事务检查服务
         if (BrokerRole.SLAVE != messageStoreConfig.getBrokerRole()) {
             if (this.transactionalMessageCheckService != null) {
                 log.info("Start transaction service!");
@@ -925,6 +937,7 @@ public class BrokerController {
             topicConfigWrapper.setTopicConfigTable(topicConfigTable);
         }
 
+        // 注册
         if (forceRegister || needRegister(this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),
             this.brokerConfig.getBrokerName(),
@@ -936,6 +949,7 @@ public class BrokerController {
 
     private void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway,
         TopicConfigSerializeWrapper topicConfigWrapper) {
+        // 注册
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
             this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),

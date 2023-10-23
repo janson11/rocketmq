@@ -339,7 +339,7 @@ public class MQClientInstance {
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
 
-        // 定时发送心跳【移除下线Broker、发送心跳】
+        // 定时发送心跳【移除下线Broker、每隔30s发送心跳】
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override
