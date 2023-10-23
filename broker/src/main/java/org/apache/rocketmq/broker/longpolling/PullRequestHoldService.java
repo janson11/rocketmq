@@ -87,10 +87,12 @@ public class PullRequestHoldService extends ServiceThread {
         log.info("{} service started", this.getServiceName());
         while (!this.isStopped()) {
             try {
-                // 根据 长轮训 还是 短轮训 设置不同的等待时间
+                // 根据 长轮训 还是 短轮训 设置不同的等待时间.
+                // 如果开启长轮询,每5s尝试一次，判断新消息是否到达。
                 if (this.brokerController.getBrokerConfig().isLongPollingEnable()) {
                     this.waitForRunning(5 * 1000);
                 } else {
+                    //没有开启长轮询，默认等待1s再次尝试
                     this.waitForRunning(this.brokerController.getBrokerConfig().getShortPollingTimeMills());
                 }
 

@@ -483,6 +483,14 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
             return processQueue;
         }
 
+        /**
+         * 1、校验当前消息队列是否已被移除，避免重复消费
+         * 2、执行消息消费前置钩子函数
+         * 3、调用MessageListener来执行用户注册的实际消息消费过程
+         * 4、对消息消费返回结果进行处理以及消息消费是否超时判断
+         * 5、执行消息消费后置钩子函数
+         * 6、执行消息消费结果处理程序，包括消息重试，offset提交等
+         */
         @Override
         public void run() {
             // 废弃队列不进行消费
@@ -498,7 +506,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
             // 消费结果状态
             ConsumeConcurrentlyStatus status = null;
 
-            // Hook
+            // before Hook
             ConsumeMessageContext consumeMessageContext = null;
             if (ConsumeMessageConcurrentlyService.this.defaultMQPushConsumerImpl.hasHook()) {
                 consumeMessageContext = new ConsumeMessageContext();
@@ -563,7 +571,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
                 status = ConsumeConcurrentlyStatus.RECONSUME_LATER;
             }
 
-            // Hook
+            //after hook
             if (ConsumeMessageConcurrentlyService.this.defaultMQPushConsumerImpl.hasHook()) {
                 consumeMessageContext.setStatus(status.toString());
                 consumeMessageContext.setSuccess(ConsumeConcurrentlyStatus.CONSUME_SUCCESS == status);
